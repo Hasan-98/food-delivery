@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  # Databases
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: food_delivery
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  # Microservices
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8001:8000"
+    env_file:
+      - ./auth-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  catalog-service:
+    build: ./catalog-service
+    ports:
+      - "8002:8000"
+    env_file:
+      - ./catalog-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  order-service:
+    build: ./order-service
+    ports:
+      - "8003:8000"
+    env_file:
+      - ./order-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  payment-service:
+    build: ./payment-service
+    ports:
+      - "8004:8000"
+    env_file:
+      - ./payment-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  restaurant-service:
+    build: ./restaurant-service
+    ports:
+      - "8005:8000"
+    env_file:
+      - ./restaurant-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  dispatch-service:
+    build: ./dispatch-service
+    ports:
+      - "8006:8000"
+    env_file:
+      - ./dispatch-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "8007:8000"
+    env_file:
+      - ./notification-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  reporting-service:
+    build: ./reporting-service
+    ports:
+      - "8008:8000"
+    env_file:
+      - ./reporting-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  # Database GUI
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
