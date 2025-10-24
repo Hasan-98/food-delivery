@@ -113,6 +113,15 @@ class OrderBase(BaseModel):
     total_amount: float
     status: OrderStatus = OrderStatus.PENDING_PAYMENT
 
+class OrderCreateRequest(BaseModel):
+    restaurant_id: int
+    delivery_address: str
+    delivery_latitude: float
+    delivery_longitude: float
+    total_amount: float
+    status: OrderStatus = OrderStatus.PENDING_PAYMENT
+    items: List[OrderItemCreate]
+
 class OrderCreate(OrderBase):
     items: List[OrderItemCreate]
 

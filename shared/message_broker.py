@@ -9,8 +9,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class MessageBroker:
-    def __init__(self, rabbitmq_url: str):
+    def __init__(self, rabbitmq_url: str, service_name: str = "unknown"):
         self.rabbitmq_url = rabbitmq_url
+        self.service_name = service_name
         self.connection = None
         self.channel = None
 
@@ -55,10 +56,9 @@ class MessageBroker:
             delivery_mode=DeliveryMode.PERSISTENT
         )
         
-        await self.channel.default_exchange.publish(
-            message,
-            routing_key=routing_key
-        )
+        # Use a proper exchange instead of default exchange
+        exchange = await self.channel.declare_exchange("food_delivery_events", aio_pika.ExchangeType.TOPIC, durable=True)
+        await exchange.publish(message, routing_key=routing_key)
         logger.info(f"Published event: {event_type}")
 
     async def subscribe_to_events(self, event_types: list, callback: Callable):
@@ -70,13 +70,16 @@ class MessageBroker:
             logger.warning(f"Cannot subscribe to events {event_types} - RabbitMQ not available")
             return
         
+        # Declare the same exchange used for publishing
+        exchange = await self.channel.declare_exchange("food_delivery_events", aio_pika.ExchangeType.TOPIC, durable=True)
+        
         # Declare a queue for this service
-        queue_name = f"service_queue_{id(self)}"
+        queue_name = f"{self.service_name}_queue"
         queue = await self.channel.declare_queue(queue_name, durable=True)
         
-        # Bind to each event type
+        # Bind to each event type using the proper exchange
         for event_type in event_types:
-            await queue.bind(exchange="", routing_key=event_type)
+            await queue.bind(exchange, routing_key=event_type)
         
         # Start consuming
         async def process_message(message):
@@ -97,7 +100,8 @@ async def get_message_broker():
     global message_broker
     if message_broker is None:
         rabbitmq_url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672")
-        message_broker = MessageBroker(rabbitmq_url)
+        service_name = os.getenv("SERVICE_NAME", "unknown")
+        message_broker = MessageBroker(rabbitmq_url, service_name)
         try:
             await message_broker.connect()
         except Exception as e:

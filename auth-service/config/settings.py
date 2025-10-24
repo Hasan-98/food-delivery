@@ -6,8 +6,8 @@ load_dotenv()
 
 class Settings:
     # Database Configuration
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./auth.db")
-    DB_HOST = os.getenv("DB_HOST", "localhost")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/food_delivery")
+    DB_HOST = os.getenv("DB_HOST", "postgres")
     DB_PORT = int(os.getenv("DB_PORT", "5432"))
     DB_NAME = os.getenv("DB_NAME", "food_delivery")
     DB_USER = os.getenv("DB_USER", "postgres")

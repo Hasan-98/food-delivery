@@ -7,18 +7,37 @@ import asyncio
 import json
 import uuid
 import random
+from datetime import datetime
 
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from database import get_db, Payment
-from models import (
+from shared.models import (
     Payment as PaymentModel, PaymentCreate, PaymentStatus, UserRole
 )
-from auth import get_current_user, require_role
-from message_broker import get_message_broker
+from shared.auth import get_current_user, require_role
+from shared.message_broker import get_message_broker
 
 app = FastAPI(title="Payment Service", version="1.0.0")
+
+# Create tables on startup
+@app.on_event("startup")
+async def startup_event():
+    from database import Base, engine
+    Base.metadata.create_all(bind=engine)
+    print("Payment Service database tables created successfully!")
+    
+    # Start event listeners (optional)
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.subscribe_to_events(
+            ["order.created"],
+            handle_order_created
+        )
+    except Exception as e:
+        print(f"Message broker startup error: {e}")
+        # Continue without message broker
 
 # Simulate payment gateway
 async def process_payment(payment_data: dict) -> dict:
@@ -74,28 +93,32 @@ async def create_payment(
     db.commit()
     db.refresh(db_payment)
     
-    # Publish payment event
-    message_broker = await get_message_broker()
-    if payment_result["success"]:
-        await message_broker.publish_event(
-            "payment.succeeded",
-            {
-                "order_id": payment.order_id,
-                "payment_id": db_payment.id,
-                "amount": payment.amount,
-                "transaction_id": payment_result["transaction_id"]
-            }
-        )
-    else:
-        await message_broker.publish_event(
-            "payment.failed",
-            {
-                "order_id": payment.order_id,
-                "payment_id": db_payment.id,
-                "amount": payment.amount,
-                "transaction_id": payment_result["transaction_id"]
-            }
-        )
+    # Publish payment event (optional)
+    try:
+        message_broker = await get_message_broker()
+        if payment_result["success"]:
+            await message_broker.publish_event(
+                "payment.succeeded",
+                {
+                    "order_id": payment.order_id,
+                    "payment_id": db_payment.id,
+                    "amount": payment.amount,
+                    "transaction_id": payment_result["transaction_id"]
+                }
+            )
+        else:
+            await message_broker.publish_event(
+                "payment.failed",
+                {
+                    "order_id": payment.order_id,
+                    "payment_id": db_payment.id,
+                    "amount": payment.amount,
+                    "transaction_id": payment_result["transaction_id"]
+                }
+            )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+        # Continue without message broker
     
     return db_payment
 
@@ -139,17 +162,21 @@ async def refund_payment(
     payment.status = PaymentStatus.REFUNDED
     db.commit()
     
-    # Publish refund event
-    message_broker = await get_message_broker()
-    await message_broker.publish_event(
-        "payment.refunded",
-        {
-            "order_id": payment.order_id,
-            "payment_id": payment.id,
-            "amount": payment.amount,
-            "transaction_id": payment.transaction_id
-        }
-    )
+    # Publish refund event (optional)
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "payment.refunded",
+            {
+                "order_id": payment.order_id,
+                "payment_id": payment.id,
+                "amount": payment.amount,
+                "transaction_id": payment.transaction_id
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+        # Continue without message broker
     
     return {"message": "Payment refunded successfully"}
 
@@ -192,37 +219,33 @@ async def handle_order_created(event_data):
     db.add(db_payment)
     db.commit()
     
-    # Publish payment event
-    message_broker = await get_message_broker()
-    if payment_result["success"]:
-        await message_broker.publish_event(
-            "payment.succeeded",
-            {
-                "order_id": order_id,
-                "payment_id": db_payment.id,
-                "amount": amount,
-                "transaction_id": payment_result["transaction_id"]
-            }
-        )
-    else:
-        await message_broker.publish_event(
-            "payment.failed",
-            {
-                "order_id": order_id,
-                "payment_id": db_payment.id,
-                "amount": amount,
-                "transaction_id": payment_result["transaction_id"]
-            }
-        )
+    # Publish payment event (optional)
+    try:
+        message_broker = await get_message_broker()
+        if payment_result["success"]:
+            await message_broker.publish_event(
+                "payment.succeeded",
+                {
+                    "order_id": order_id,
+                    "payment_id": db_payment.id,
+                    "amount": amount,
+                    "transaction_id": payment_result["transaction_id"]
+                }
+            )
+        else:
+            await message_broker.publish_event(
+                "payment.failed",
+                {
+                    "order_id": order_id,
+                    "payment_id": db_payment.id,
+                    "amount": amount,
+                    "transaction_id": payment_result["transaction_id"]
+                }
+            )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+        # Continue without message broker
 
-# Start event listeners on startup
-@app.on_event("startup")
-async def startup_event():
-    message_broker = await get_message_broker()
-    await message_broker.subscribe_to_events(
-        ["order.created"],
-        handle_order_created
-    )
 
 if __name__ == "__main__":
     import uvicorn

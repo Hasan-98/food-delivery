@@ -1,13 +1,10 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from models.user import User
 from config.settings import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class AuthService:
     def __init__(self):
@@ -17,11 +14,13 @@ class AuthService:
     
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         """Verify a password against its hash"""
-        return pwd_context.verify(plain_password, hashed_password)
+        from passlib.hash import pbkdf2_sha256
+        return pbkdf2_sha256.verify(plain_password, hashed_password)
     
     def get_password_hash(self, password: str) -> str:
         """Hash a password"""
-        return pwd_context.hash(password)
+        from passlib.hash import pbkdf2_sha256
+        return pbkdf2_sha256.hash(password)
     
     def create_access_token(self, data: dict, expires_delta: Optional[timedelta] = None) -> str:
         """Create a JWT access token"""

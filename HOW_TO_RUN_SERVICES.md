@@ -26,10 +26,19 @@ Follow the steps below to run each service individually.
 
 ### **Prerequisites**
 - Python 3.8+
-- PostgreSQL (running on localhost:5432)
-- RabbitMQ (running on localhost:5672)
+- Docker and Docker Compose (for PostgreSQL and RabbitMQ)
+- OR Local PostgreSQL (running on localhost:5432) and RabbitMQ (running on localhost:5672)
 
-### **Database Setup**
+### **Database Setup (Docker - Recommended)**
+```bash
+# Start PostgreSQL and RabbitMQ with Docker
+docker compose up -d postgres rabbitmq
+
+# Check if services are running
+docker compose ps
+```
+
+### **Database Setup (Local - Alternative)**
 ```bash
 # Create database
 createdb food_delivery
@@ -266,8 +275,8 @@ docker compose down
 - Reporting Service: http://localhost:8008
 
 ### **Infrastructure Services:**
-- PostgreSQL: localhost:5432
-- RabbitMQ: localhost:5672
+- PostgreSQL: localhost:5432 (Docker container)
+- RabbitMQ: localhost:5672 (Docker container)
 - Adminer (DB GUI): http://localhost:8080
 - RabbitMQ Management: http://localhost:15672
 
@@ -314,20 +323,26 @@ kill -9 PID
 
 #### **2. Database Connection Error:**
 ```bash
-# Check PostgreSQL is running
-sudo systemctl status postgresql
+# Check PostgreSQL Docker container is running
+docker compose ps postgres
 
-# Start PostgreSQL
-sudo systemctl start postgresql
+# Start PostgreSQL container
+docker compose up -d postgres
+
+# Check PostgreSQL logs
+docker compose logs postgres
 ```
 
 #### **3. RabbitMQ Connection Error:**
 ```bash
-# Check RabbitMQ is running
-sudo systemctl status rabbitmq-server
+# Check RabbitMQ Docker container is running
+docker compose ps rabbitmq
 
-# Start RabbitMQ
-sudo systemctl start rabbitmq-server
+# Start RabbitMQ container
+docker compose up -d rabbitmq
+
+# Check RabbitMQ logs
+docker compose logs rabbitmq
 ```
 
 #### **4. Virtual Environment Issues:**
@@ -372,9 +387,11 @@ All Services → Reporting Service (Analytics)
 
 ### **1. Start Infrastructure:**
 ```bash
-# Start PostgreSQL and RabbitMQ
-sudo systemctl start postgresql
-sudo systemctl start rabbitmq-server
+# Start PostgreSQL and RabbitMQ with Docker
+docker compose up -d postgres rabbitmq
+
+# Check services are running
+docker compose ps
 ```
 
 ### **2. Start Core Services:**

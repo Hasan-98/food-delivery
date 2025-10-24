@@ -9,9 +9,9 @@ import json
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from models import UserRole, OrderStatus
-from auth import get_current_user, require_role
-from message_broker import get_message_broker
+from shared.models import UserRole, OrderStatus
+from shared.auth import get_current_user, require_role
+from shared.message_broker import get_message_broker
 from database import get_db
 
 app = FastAPI(title="Restaurant Service", version="1.0.0")
@@ -37,15 +37,18 @@ async def accept_order(
 ):
     """Accept an order"""
     # Publish order accepted event
-    message_broker = await get_message_broker()
-    await message_broker.publish_event(
-        "order.accepted",
-        {
-            "order_id": order_id,
-            "restaurant_id": current_user.id,
-            "accepted_at": str(asyncio.get_event_loop().time())
-        }
-    )
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "order.accepted",
+            {
+                "order_id": order_id,
+                "restaurant_id": current_user.id,
+                "accepted_at": str(asyncio.get_event_loop().time())
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
     
     return {"message": f"Order {order_id} accepted"}
 
@@ -57,15 +60,18 @@ async def start_preparing_order(
 ):
     """Start preparing an order"""
     # Publish order preparing event
-    message_broker = await get_message_broker()
-    await message_broker.publish_event(
-        "order.preparing",
-        {
-            "order_id": order_id,
-            "restaurant_id": current_user.id,
-            "started_at": str(asyncio.get_event_loop().time())
-        }
-    )
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "order.preparing",
+            {
+                "order_id": order_id,
+                "restaurant_id": current_user.id,
+                "started_at": str(asyncio.get_event_loop().time())
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
     
     return {"message": f"Order {order_id} preparation started"}
 
@@ -77,15 +83,18 @@ async def mark_order_ready(
 ):
     """Mark order as ready for delivery"""
     # Publish order ready event
-    message_broker = await get_message_broker()
-    await message_broker.publish_event(
-        "order.ready_for_delivery",
-        {
-            "order_id": order_id,
-            "restaurant_id": current_user.id,
-            "ready_at": str(asyncio.get_event_loop().time())
-        }
-    )
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "order.ready_for_delivery",
+            {
+                "order_id": order_id,
+                "restaurant_id": current_user.id,
+                "ready_at": str(asyncio.get_event_loop().time())
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
     
     return {"message": f"Order {order_id} is ready for delivery"}
 
@@ -98,16 +107,19 @@ async def cancel_order(
 ):
     """Cancel an order"""
     # Publish order cancelled event
-    message_broker = await get_message_broker()
-    await message_broker.publish_event(
-        "order.cancelled",
-        {
-            "order_id": order_id,
-            "restaurant_id": current_user.id,
-            "cancelled_at": str(asyncio.get_event_loop().time()),
-            "reason": reason
-        }
-    )
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "order.cancelled",
+            {
+                "order_id": order_id,
+                "restaurant_id": current_user.id,
+                "cancelled_at": str(asyncio.get_event_loop().time()),
+                "reason": reason
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
     
     return {"message": f"Order {order_id} cancelled"}
 
@@ -131,11 +143,14 @@ async def handle_order_confirmed(event_data):
 # Start event listeners on startup
 @app.on_event("startup")
 async def startup_event():
-    message_broker = await get_message_broker()
-    await message_broker.subscribe_to_events(
-        ["order.confirmed"],
-        handle_order_confirmed
-    )
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.subscribe_to_events(
+            ["order.confirmed"],
+            handle_order_confirmed
+        )
+    except Exception as e:
+        print(f"Message broker subscription error: {e}")
 
 if __name__ == "__main__":
     import uvicorn

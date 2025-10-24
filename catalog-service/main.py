@@ -12,7 +12,7 @@ from models import (
     Restaurant as RestaurantModel, RestaurantCreate, 
     MenuItem as MenuItemModel, MenuItemCreate
 )
-from auth import get_current_user, require_role, UserRole
+from shared.auth import get_current_user, require_role, UserRole
 
 app = FastAPI(title="Catalog Service", version="1.0.0")
 

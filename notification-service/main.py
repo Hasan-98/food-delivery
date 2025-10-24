@@ -10,9 +10,9 @@ import logging
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from models import UserRole
-from auth import get_current_user, require_role
-from message_broker import get_message_broker
+from shared.models import UserRole
+from shared.auth import get_current_user, require_role
+from shared.message_broker import get_message_broker
 
 app = FastAPI(title="Notification Service", version="1.0.0")
 

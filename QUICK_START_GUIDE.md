@@ -4,7 +4,7 @@
 
 ### **Start Everything at Once:**
 ```bash
-# Start all services with Docker
+# Start all services with Docker (includes PostgreSQL and RabbitMQ)
 docker compose up -d
 
 # Check status
@@ -13,6 +13,13 @@ docker compose ps
 # View logs
 docker compose logs -f
 ```
+
+### **Database Configuration:**
+- **PostgreSQL**: Running in Docker container on port 5432
+- **Database Name**: `food_delivery`
+- **Username**: `postgres`
+- **Password**: `postgres`
+- **Connection**: All services automatically connect to Docker PostgreSQL
 
 ### **Service URLs (Docker):**
 - **Auth Service**: http://localhost:8001
@@ -30,11 +37,12 @@ docker compose logs -f
 
 ### **Prerequisites:**
 ```bash
-# Start PostgreSQL
+# Start PostgreSQL and RabbitMQ with Docker (Recommended)
+docker compose up -d postgres rabbitmq
+
+# OR Start locally (Alternative)
 sudo systemctl start postgresql
 createdb food_delivery
-
-# Start RabbitMQ
 sudo systemctl start rabbitmq-server
 ```
 
@@ -120,11 +128,11 @@ cd order-service && python main.py
 - **API Documentation**: Available
 
 ### **⚠️ Issues:**
-- **Database**: Need PostgreSQL running
+- **Database**: Need PostgreSQL running (use Docker Compose)
 - **Other Services**: Import issues (use Docker Compose)
 
 ### **🎯 Next Steps:**
-1. **Start PostgreSQL** or use Docker Compose
+1. **Start PostgreSQL with Docker** or use Docker Compose for all services
 2. **Test Auth Service** with Postman
 3. **Start other services** as needed
 

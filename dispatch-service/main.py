@@ -11,9 +11,9 @@ import math
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from database import get_db, Driver, Delivery
-from models import Driver as DriverModel, DriverCreate, DriverStatus, UserRole
-from auth import get_current_user, require_role
-from message_broker import get_message_broker
+from shared.models import Driver as DriverModel, DriverCreate, DriverStatus, UserRole
+from shared.auth import get_current_user, require_role
+from shared.message_broker import get_message_broker
 
 app = FastAPI(title="Dispatch Service", version="1.0.0")
 

@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -18,11 +18,13 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_DEFAULT_VHOST: /
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5673:5672"
+      - "15673:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
 
   # Microservices
   auth-service:
@@ -34,6 +36,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=auth-service
     depends_on:
       - postgres
       - rabbitmq
@@ -42,11 +45,14 @@ services:
     build: ./catalog-service
     ports:
       - "8002:8000"
+    volumes:
+      - ./shared:/app/shared
     env_file:
       - ./catalog-service/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=catalog-service
     depends_on:
       - postgres
       - rabbitmq
@@ -55,11 +61,14 @@ services:
     build: ./order-service
     ports:
       - "8003:8000"
+    volumes:
+      - ./shared:/app/shared
     env_file:
       - ./order-service/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=order-service
     depends_on:
       - postgres
       - rabbitmq
@@ -68,11 +77,14 @@ services:
     build: ./payment-service
     ports:
       - "8004:8000"
+    volumes:
+      - ./shared:/app/shared
     env_file:
       - ./payment-service/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=payment-service
     depends_on:
       - postgres
       - rabbitmq
@@ -86,6 +98,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=restaurant-service
+    volumes:
+      - ./shared:/app/shared
     depends_on:
       - postgres
       - rabbitmq
@@ -99,6 +114,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=dispatch-service
+    volumes:
+      - ./shared:/app/shared
     depends_on:
       - postgres
       - rabbitmq
@@ -112,6 +130,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=notification-service
+    volumes:
+      - ./shared:/app/shared
     depends_on:
       - postgres
       - rabbitmq
@@ -125,6 +146,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - SERVICE_NAME=reporting-service
+    volumes:
+      - ./shared:/app/shared
     depends_on:
       - postgres
       - rabbitmq

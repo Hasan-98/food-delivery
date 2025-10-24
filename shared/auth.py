@@ -1,25 +1,26 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from database import get_db
-from models import User, TokenData, UserRole
+from shared.database import get_db
+from shared.database import User
+from shared.models import TokenData, UserRole
 
-SECRET_KEY = "your-secret-key-here"
+SECRET_KEY = "your-super-secret-jwt-key-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    from passlib.hash import pbkdf2_sha256
+    return pbkdf2_sha256.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
-    return pwd_context.hash(password)
+    from passlib.hash import pbkdf2_sha256
+    return pbkdf2_sha256.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -34,10 +35,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def verify_token(token: str, credentials_exception):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = payload.get("sub")
+        user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
-        token_data = TokenData(user_id=user_id, role=payload.get("role"))
+        token_data = TokenData(user_id=int(user_id), role=payload.get("role"))
     except JWTError:
         raise credentials_exception
     return token_data
