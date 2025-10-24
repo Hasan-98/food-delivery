@@ -165,6 +165,14 @@ class DriverBase(BaseModel):
 class DriverCreate(DriverBase):
     pass
 
+class DriverCreateRequest(BaseModel):
+    """Driver creation request without user_id (gets from authenticated user)"""
+    vehicle_type: str
+    license_plate: str
+    status: DriverStatus = DriverStatus.AVAILABLE
+    current_latitude: Optional[float] = None
+    current_longitude: Optional[float] = None
+
 class Driver(DriverBase):
     id: int
     created_at: datetime

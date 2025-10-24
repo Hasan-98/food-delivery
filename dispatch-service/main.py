@@ -6,12 +6,13 @@ import os
 import asyncio
 import json
 import math
+from datetime import datetime
 
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from database import get_db, Driver, Delivery
-from shared.models import Driver as DriverModel, DriverCreate, DriverStatus, UserRole
+from shared.models import Driver as DriverModel, DriverCreate, DriverCreateRequest, DriverStatus, UserRole
 from shared.auth import get_current_user, require_role
 from shared.message_broker import get_message_broker
 
@@ -31,7 +32,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 @app.post("/drivers", response_model=DriverModel)
 async def create_driver(
-    driver: DriverCreate,
+    driver: DriverCreateRequest,
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.DRIVER))
 ):
@@ -173,6 +174,150 @@ async def assign_driver(
     
     return {"message": f"Driver {driver_id} assigned to order {order_id}"}
 
+@app.post("/orders/{order_id}/assign")
+async def self_assign_driver(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.DRIVER))
+):
+    """Driver self-assigns to an order"""
+    # Check if driver profile exists
+    driver = db.query(Driver).filter(Driver.user_id == current_user.id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+    
+    if driver.status != DriverStatus.AVAILABLE:
+        raise HTTPException(status_code=400, detail="Driver is not available")
+    
+    # Check if order is already assigned
+    existing_delivery = db.query(Delivery).filter(Delivery.order_id == order_id).first()
+    if existing_delivery:
+        raise HTTPException(status_code=400, detail="Order already assigned to a driver")
+    
+    # Create delivery record
+    delivery = Delivery(
+        order_id=order_id,
+        driver_id=driver.id,
+        status="ASSIGNED"
+    )
+    db.add(delivery)
+    
+    # Update driver status
+    driver.status = DriverStatus.BUSY
+    db.commit()
+    
+    # Publish driver assigned event
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "driver.assigned",
+            {
+                "order_id": order_id,
+                "driver_id": driver.id,
+                "assigned_at": str(asyncio.get_event_loop().time())
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+    
+    return {"message": f"Driver {driver.id} assigned to order {order_id}"}
+
+@app.post("/deliveries/{order_id}/pickup")
+async def mark_pickup(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.DRIVER))
+):
+    """Driver marks order as picked up"""
+    # Check if driver profile exists
+    driver = db.query(Driver).filter(Driver.user_id == current_user.id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+    
+    # Check if delivery exists and is assigned to this driver
+    delivery = db.query(Delivery).filter(
+        Delivery.order_id == order_id,
+        Delivery.driver_id == driver.id
+    ).first()
+    
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found or not assigned to this driver")
+    
+    if delivery.status != "ASSIGNED":
+        raise HTTPException(status_code=400, detail="Delivery is not in ASSIGNED status")
+    
+    # Update delivery status
+    delivery.status = "PICKED_UP"
+    delivery.picked_up_at = datetime.utcnow()
+    db.commit()
+    
+    # Publish delivery status changed event
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "delivery.status_changed",
+            {
+                "order_id": order_id,
+                "driver_id": driver.id,
+                "status": "PICKED_UP",
+                "updated_at": str(asyncio.get_event_loop().time())
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+    
+    return {"message": f"Order {order_id} marked as picked up"}
+
+@app.post("/deliveries/{order_id}/deliver")
+async def mark_delivered(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.DRIVER))
+):
+    """Driver marks order as delivered"""
+    # Check if driver profile exists
+    driver = db.query(Driver).filter(Driver.user_id == current_user.id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+    
+    # Check if delivery exists and is assigned to this driver
+    delivery = db.query(Delivery).filter(
+        Delivery.order_id == order_id,
+        Delivery.driver_id == driver.id
+    ).first()
+    
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found or not assigned to this driver")
+    
+    if delivery.status != "PICKED_UP":
+        raise HTTPException(status_code=400, detail="Delivery is not in PICKED_UP status")
+    
+    # Update delivery status
+    delivery.status = "DELIVERED"
+    delivery.delivered_at = datetime.utcnow()
+    db.commit()
+    
+    # Update driver status back to available
+    driver.status = DriverStatus.AVAILABLE
+    db.commit()
+    
+    # Publish delivery status changed event
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            "delivery.status_changed",
+            {
+                "order_id": order_id,
+                "driver_id": driver.id,
+                "status": "DELIVERED",
+                "updated_at": str(asyncio.get_event_loop().time())
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+    
+    return {"message": f"Order {order_id} marked as delivered"}
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "dispatch-service"}
@@ -245,11 +390,22 @@ async def handle_order_ready_for_delivery(event_data):
 # Start event listeners on startup
 @app.on_event("startup")
 async def startup_event():
-    message_broker = await get_message_broker()
-    await message_broker.subscribe_to_events(
-        ["order.ready_for_delivery"],
-        handle_order_ready_for_delivery
-    )
+    # Create database tables
+    from database import Base, engine
+    Base.metadata.create_all(bind=engine)
+    print("Dispatch Service database tables created successfully!")
+    
+    # Start message broker subscription
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.subscribe_to_events(
+            ["order.ready_for_delivery"],
+            handle_order_ready_for_delivery
+        )
+        print("Dispatch Service connected to RabbitMQ successfully!")
+    except Exception as e:
+        print(f"Message broker startup error: {e}")
+        print("Continuing without RabbitMQ - some features may not work")
 
 if __name__ == "__main__":
     import uvicorn

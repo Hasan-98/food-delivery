@@ -16,7 +16,7 @@ class Driver(Base):
     __tablename__ = "drivers"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer)  # No foreign key constraint since users table is in auth service
     vehicle_type = Column(String)
     license_plate = Column(String)
     status = Column(Enum("AVAILABLE", "BUSY", "OFFLINE", name="driver_status"))
