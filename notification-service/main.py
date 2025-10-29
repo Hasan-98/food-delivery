@@ -6,10 +6,12 @@ import os
 import asyncio
 import json
 import logging
+from datetime import datetime
 
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
+from database import get_db, Base, engine, Notification
 from shared.models import UserRole
 from shared.auth import get_current_user, require_role
 from shared.message_broker import get_message_broker
@@ -50,12 +52,36 @@ notification_service = NotificationService()
 async def get_notifications(
     skip: int = 0,
     limit: int = 100,
+    db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Get notification history for user"""
-    # In a real system, this would query a notifications table
+    # Query notifications for the current user
+    notifications = db.query(Notification).filter(
+        Notification.user_id == current_user.id
+    ).order_by(Notification.created_at.desc()).offset(skip).limit(limit).all()
+    
+    # Get total count
+    total_count = db.query(Notification).filter(
+        Notification.user_id == current_user.id
+    ).count()
+    
+    notification_list = [
+        {
+            "id": notification.id,
+            "type": notification.type,
+            "title": notification.title,
+            "message": notification.message,
+            "status": notification.status,
+            "created_at": notification.created_at.isoformat() if notification.created_at else None,
+            "sent_at": notification.sent_at.isoformat() if notification.sent_at else None
+        }
+        for notification in notifications
+    ]
+    
     return {
-        "message": "Notification history would be returned here",
+        "notifications": notification_list,
+        "total_count": total_count,
         "user_id": current_user.id
     }
 
@@ -65,19 +91,49 @@ async def send_notification(
     notification_type: str,
     title: str,
     message: str,
+    db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.ADMIN))
 ):
     """Send a notification to a specific user"""
-    if notification_type == "sms":
-        result = await notification_service.send_sms("+1234567890", message)
-    elif notification_type == "email":
-        result = await notification_service.send_email("user@example.com", title, message)
-    elif notification_type == "push":
-        result = await notification_service.send_push_notification(user_id, title, message)
-    else:
+    if notification_type not in ["sms", "email", "push"]:
         raise HTTPException(status_code=400, detail="Invalid notification type")
     
-    return result
+    # Create notification record
+    notification = Notification(
+        user_id=user_id,
+        type=notification_type.upper(),
+        title=title,
+        message=message,
+        status="PENDING"
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+    
+    # Send the actual notification
+    try:
+        if notification_type == "sms":
+            result = await notification_service.send_sms("+1234567890", message)
+        elif notification_type == "email":
+            result = await notification_service.send_email("user@example.com", title, message)
+        elif notification_type == "push":
+            result = await notification_service.send_push_notification(user_id, title, message)
+        
+        # Update notification status to sent
+        notification.status = "SENT"
+        notification.sent_at = datetime.utcnow()
+        db.commit()
+        
+        return {
+            "notification_id": notification.id,
+            "status": "sent",
+            "provider": "simulated"
+        }
+    except Exception as e:
+        # Update notification status to failed
+        notification.status = "FAILED"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Failed to send notification: {str(e)}")
 
 @app.get("/health")
 async def health_check():
@@ -89,6 +145,25 @@ async def handle_order_created(event_data):
     order_data = event_data["data"]
     order_id = order_data["order_id"]
     customer_id = order_data["customer_id"]
+    
+    # Save notification to database
+    db = next(get_db())
+    try:
+        notification = Notification(
+            user_id=customer_id,
+            type="PUSH",
+            title="Order Confirmed",
+            message=f"Your order #{order_id} has been placed successfully!",
+            status="SENT",
+            sent_at=datetime.utcnow()
+        )
+        db.add(notification)
+        db.commit()
+        logger.info(f"Order confirmation notification saved for order {order_id}")
+    except Exception as e:
+        logger.error(f"Failed to save notification: {e}")
+    finally:
+        db.close()
     
     # Send order confirmation
     await notification_service.send_push_notification(
@@ -208,21 +283,30 @@ async def handle_no_driver_available(event_data):
 # Start event listeners on startup
 @app.on_event("startup")
 async def startup_event():
-    message_broker = await get_message_broker()
-    await message_broker.subscribe_to_events(
-        [
-            "order.created",
-            "payment.succeeded", 
-            "payment.failed",
-            "order.accepted",
-            "order.ready_for_delivery",
-            "driver.assigned",
-            "order.delivered",
-        "no.driver.available"
-    ],
-    # This is a simplified approach - in reality, you'd have separate handlers
-    handle_order_created
-)
+    # Create database tables
+    Base.metadata.create_all(bind=engine)
+    print("Notification Service database tables created successfully!")
+    
+    # Start message broker subscription
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.subscribe_to_events(
+            [
+                "order.created",
+                "payment.succeeded", 
+                "payment.failed",
+                "order.accepted",
+                "order.ready_for_delivery",
+                "driver.assigned",
+                "order.delivered",
+                "no.driver.available"
+            ],
+            handle_order_created
+        )
+        print("Notification Service connected to RabbitMQ successfully!")
+    except Exception as e:
+        print(f"Message broker startup error: {e}")
+        print("Continuing without RabbitMQ - some features may not work")
 
 if __name__ == "__main__":
     import uvicorn

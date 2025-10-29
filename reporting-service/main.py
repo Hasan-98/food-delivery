@@ -19,13 +19,16 @@ app = FastAPI(title="Reporting Service", version="1.0.0")
 
 @app.get("/reports/active-counts")
 async def get_active_counts(db: Session = Depends(get_db)):
-    """Get total active customers, restaurants, and drivers"""
-    # This would typically query the respective services
-    # For now, return mock data
+    """Get total active customers, restaurants, and drivers from real tables."""
+    from sqlalchemy import text
+    # users: role in (CUSTOMER, RESTAURANT, DRIVER)
+    customers = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'CUSTOMER' AND is_active = true")).scalar() or 0
+    restaurants = db.execute(text("SELECT COUNT(*) FROM restaurants")).scalar() or 0
+    drivers = db.execute(text("SELECT COUNT(*) FROM drivers")).scalar() or 0
     return {
-        "active_customers": 150,
-        "active_restaurants": 25,
-        "active_drivers": 40
+        "active_customers": int(customers),
+        "active_restaurants": int(restaurants),
+        "active_drivers": int(drivers)
     }
 
 @app.get("/reports/customer-history/{customer_id}")
@@ -33,6 +36,7 @@ async def get_customer_history(
     customer_id: int,
     skip: int = 0,
     limit: int = 100,
+    customer_name: Optional[str] = Query(None, description="Optional search by customer name (ILIKE)"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -41,15 +45,47 @@ async def get_customer_history(
     if current_user.role == UserRole.CUSTOMER and current_user.id != customer_id:
         raise HTTPException(status_code=403, detail="Not authorized to view this customer's history")
     
-    # Query order analytics
-    orders = db.query(OrderAnalytics).filter(
-        OrderAnalytics.customer_id == customer_id
-    ).offset(skip).limit(limit).all()
+    # If a name filter is provided, verify the customer_id matches the name
+    from sqlalchemy import text
+    if customer_name:
+        user_row = db.execute(
+            text("SELECT id FROM users WHERE id = :cid AND name ILIKE :name"),
+            {"cid": customer_id, "name": f"%{customer_name}%"}
+        ).fetchone()
+        if not user_row:
+            return {"customer_id": customer_id, "orders": [], "total_orders": 0}
+
+    # Get orders from orders table directly
+    from sqlalchemy import text
+    orders_rows = db.execute(text("""
+        SELECT id, restaurant_id, total_amount, status, created_at, delivery_address
+        FROM orders 
+        WHERE customer_id = :customer_id 
+        ORDER BY created_at DESC 
+        OFFSET :skip LIMIT :limit
+    """), {"customer_id": customer_id, "skip": skip, "limit": limit}).fetchall()
+    
+    # Get total count
+    total_count = db.execute(text("""
+        SELECT COUNT(*) FROM orders WHERE customer_id = :customer_id
+    """), {"customer_id": customer_id}).scalar()
+    
+    orders = [
+        {
+            "id": row.id,
+            "restaurant_id": row.restaurant_id,
+            "total_amount": float(row.total_amount),
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "delivery_address": row.delivery_address
+        }
+        for row in orders_rows
+    ]
     
     return {
         "customer_id": customer_id,
         "orders": orders,
-        "total_orders": len(orders)
+        "total_orders": int(total_count) if total_count else 0
     }
 
 @app.get("/reports/top-customers")
@@ -59,12 +95,32 @@ async def get_top_customers(
     current_user = Depends(require_role(UserRole.ADMIN))
 ):
     """Get top customers with highest order frequency"""
-    customers = db.query(CustomerAnalytics).order_by(
-        CustomerAnalytics.total_orders.desc()
-    ).limit(limit).all()
+    from sqlalchemy import text
+    
+    # Get top customers from orders table directly
+    rows = db.execute(text("""
+        SELECT customer_id, 
+               COUNT(*) as total_orders,
+               SUM(total_amount) as total_spent,
+               MAX(created_at) as last_order_date
+        FROM orders 
+        GROUP BY customer_id 
+        ORDER BY COUNT(*) DESC 
+        LIMIT :limit
+    """), {"limit": limit}).fetchall()
+    
+    top_customers = [
+        {
+            "customer_id": row.customer_id,
+            "total_orders": int(row.total_orders),
+            "total_spent": float(row.total_spent) if row.total_spent else 0.0,
+            "last_order_date": row.last_order_date.isoformat() if row.last_order_date else None
+        }
+        for row in rows
+    ]
     
     return {
-        "top_customers": customers,
+        "top_customers": top_customers,
         "limit": limit
     }
 
@@ -146,34 +202,35 @@ async def get_popular_menu_items(
     limit: int = 10,
     db: Session = Depends(get_db)
 ):
-    """Get most ordered menu items across all restaurants"""
-    # This would typically aggregate from order items
-    # For now, return mock data
-    return {
-        "popular_items": [
-            {"item_name": "Chicken Burger", "order_count": 150, "restaurant": "Burger Palace"},
-            {"item_name": "Margherita Pizza", "order_count": 120, "restaurant": "Pizza Corner"},
-            {"item_name": "Chicken Wings", "order_count": 95, "restaurant": "Wing Stop"},
-            {"item_name": "Caesar Salad", "order_count": 80, "restaurant": "Healthy Bites"},
-            {"item_name": "Fish & Chips", "order_count": 75, "restaurant": "Seafood Shack"}
-        ],
-        "limit": limit
-    }
+    """Get most ordered menu items across all restaurants (real aggregation)."""
+    from sqlalchemy import text
+    rows = db.execute(text(
+        """
+        SELECT mi.name AS item_name,
+               COUNT(oi.id) AS order_count,
+               r.name AS restaurant
+        FROM order_items oi
+        JOIN menu_items mi ON mi.id = oi.menu_item_id
+        JOIN restaurants r ON r.id = mi.restaurant_id
+        GROUP BY mi.name, r.name
+        ORDER BY COUNT(oi.id) DESC
+        LIMIT :limit
+        """
+    ), {"limit": limit}).fetchall()
+    popular = [
+        {"item_name": row.item_name, "order_count": int(row.order_count), "restaurant": row.restaurant}
+        for row in rows
+    ]
+    return {"popular_items": popular, "limit": limit}
 
 @app.get("/reports/order-status-distribution")
 async def get_order_status_distribution(db: Session = Depends(get_db)):
-    """Get distribution of order statuses"""
-    # This would typically aggregate from order analytics
-    # For now, return mock data
-    return {
-        "status_distribution": {
-            "DELIVERED": 450,
-            "IN_TRANSIT": 25,
-            "PREPARING": 15,
-            "CANCELLED": 30,
-            "PENDING_PAYMENT": 5
-        }
-    }
+    """Get distribution of order statuses from orders table (real)."""
+    from sqlalchemy import text
+    rows = db.execute(text(
+        "SELECT status, COUNT(*) AS c FROM orders GROUP BY status"
+    )).fetchall()
+    return {"status_distribution": {row.status: int(row.c) for row in rows}}
 
 @app.get("/reports/driver-deliveries")
 async def get_driver_deliveries(
@@ -186,23 +243,12 @@ async def get_driver_deliveries(
     if current_user.role == UserRole.DRIVER and current_user.id != driver_id:
         raise HTTPException(status_code=403, detail="Not authorized to view this driver's data")
     
-    driver_analytics = db.query(DriverAnalytics).filter(
-        DriverAnalytics.driver_id == driver_id
-    ).first()
-    
-    if not driver_analytics:
-        return {
-            "driver_id": driver_id,
-            "total_deliveries": 0,
-            "total_earnings": 0.0
-        }
-    
-    return {
-        "driver_id": driver_id,
-        "total_deliveries": driver_analytics.total_deliveries,
-        "total_earnings": driver_analytics.total_earnings,
-        "last_delivery": driver_analytics.last_delivery_date
-    }
+    from sqlalchemy import text
+    row = db.execute(text(
+        "SELECT COUNT(*) AS deliveries FROM deliveries WHERE driver_id = :did AND status = 'DELIVERED'"
+    ), {"did": driver_id}).fetchone()
+    deliveries = int(row.deliveries) if row and row.deliveries is not None else 0
+    return {"driver_id": driver_id, "total_deliveries": deliveries}
 
 @app.get("/reports/cancelled-orders")
 async def get_cancelled_orders(
@@ -267,45 +313,36 @@ async def get_peak_times(
     granularity: str = "day",  # day, week, month, year
     db: Session = Depends(get_db)
 ):
-    """Get peak times for orders"""
-    # This would typically analyze order timestamps
-    # For now, return mock data based on granularity
+    """Get peak times for orders using date_trunc aggregations from orders.created_at."""
+    from sqlalchemy import text
     if granularity == "day":
-        return {
-            "granularity": "day",
-            "peak_times": [
-                {"time_range": "12:00-13:00", "order_count": 45},
-                {"time_range": "18:00-19:00", "order_count": 38},
-                {"time_range": "19:00-20:00", "order_count": 42}
-            ]
-        }
-    elif granularity == "week":
-        return {
-            "granularity": "week",
-            "peak_days": [
-                {"day": "Friday", "order_count": 120},
-                {"day": "Saturday", "order_count": 135},
-                {"day": "Sunday", "order_count": 110}
-            ]
-        }
-    elif granularity == "month":
-        return {
-            "granularity": "month",
-            "peak_weeks": [
-                {"week": "Week 2", "order_count": 450},
-                {"week": "Week 3", "order_count": 480},
-                {"week": "Week 4", "order_count": 420}
-            ]
-        }
-    elif granularity == "year":
-        return {
-            "granularity": "year",
-            "peak_months": [
-                {"month": "December", "order_count": 1800},
-                {"month": "November", "order_count": 1650},
-                {"month": "October", "order_count": 1550}
-            ]
-        }
+        rows = db.execute(text(
+            """
+            SELECT to_char(date_trunc('hour', created_at), 'HH24:00') AS hour,
+                   COUNT(*) AS order_count
+            FROM orders
+            GROUP BY 1
+            ORDER BY order_count DESC
+            LIMIT 5
+            """
+        )).fetchall()
+        return {"granularity": "day", "peak_times": [{"time": r.hour, "order_count": int(r.order_count)} for r in rows]}
+    if granularity == "week":
+        rows = db.execute(text(
+            "SELECT to_char(created_at, 'Day') AS day, COUNT(*) AS order_count FROM orders GROUP BY 1 ORDER BY order_count DESC LIMIT 3"
+        )).fetchall()
+        return {"granularity": "week", "peak_days": [{"day": r.day.strip(), "order_count": int(r.order_count)} for r in rows]}
+    if granularity == "month":
+        rows = db.execute(text(
+            "SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week, COUNT(*) AS order_count FROM orders GROUP BY 1 ORDER BY order_count DESC LIMIT 3"
+        )).fetchall()
+        return {"granularity": "month", "peak_weeks": [{"week": r.week, "order_count": int(r.order_count)} for r in rows]}
+    if granularity == "year":
+        rows = db.execute(text(
+            "SELECT to_char(created_at, 'Mon') AS month, COUNT(*) AS order_count FROM orders GROUP BY 1 ORDER BY order_count DESC LIMIT 5"
+        )).fetchall()
+        return {"granularity": "year", "peak_months": [{"month": r.month, "order_count": int(r.order_count)} for r in rows]}
+    return {"granularity": granularity, "data": []}
 
 @app.get("/health")
 async def health_check():
@@ -407,22 +444,33 @@ async def handle_all_events(event_data):
 # Start event listeners on startup
 @app.on_event("startup")
 async def startup_event():
-    message_broker = await get_message_broker()
-    await message_broker.subscribe_to_events(
-        [
-            "order.created",
-            "order.confirmed",
-            "order.accepted",
-            "order.preparing",
-            "order.ready_for_delivery",
-            "order.delivered",
-            "order.cancelled",
-            "payment.succeeded",
-        "payment.failed",
-        "driver.assigned"
-    ],
-    handle_all_events
-)
+    # Create database tables
+    from database import Base, engine
+    Base.metadata.create_all(bind=engine)
+    print("Reporting Service database tables created successfully!")
+    
+    # Start message broker subscription
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.subscribe_to_events(
+            [
+                "order.created",
+                "order.confirmed",
+                "order.accepted",
+                "order.preparing",
+                "order.ready_for_delivery",
+                "order.delivered",
+                "order.cancelled",
+                "payment.succeeded",
+            "payment.failed",
+            "driver.assigned"
+        ],
+        handle_all_events
+        )
+        print("Reporting Service connected to RabbitMQ successfully!")
+    except Exception as e:
+        print(f"Message broker startup error: {e}")
+        print("Continuing without RabbitMQ - some features may not work")
 
 if __name__ == "__main__":
     import uvicorn

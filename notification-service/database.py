@@ -16,7 +16,7 @@ class Notification(Base):
     __tablename__ = "notifications"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer)  # No foreign key constraint since users table is in auth service
     type = Column(Enum("SMS", "EMAIL", "PUSH", name="notification_type"))
     title = Column(String)
     message = Column(Text)
