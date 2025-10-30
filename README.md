@@ -343,15 +343,12 @@ docker-compose restart <service-name>
 docker-compose build <service-name>
 ```
 
-## Contributing
+# Rabbit MQ Credentails 
+username: admin
+password: admin
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License.
+# Postgres Credentails
+database: postgres
+username: postgres
+password: postgres
 # food-delivery
