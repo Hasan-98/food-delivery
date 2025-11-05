@@ -1,11 +1,7 @@
-from .restaurant import Restaurant, RestaurantCreate, Restaurant as RestaurantModel
-from .menu_item import MenuItem, MenuItemCreate, MenuItem as MenuItemModel
+from .restaurant import Restaurant
+from .menu_item import MenuItem
 
 __all__ = [
     "Restaurant",
-    "RestaurantCreate", 
-    "RestaurantModel",
-    "MenuItem",
-    "MenuItemCreate",
-    "MenuItemModel"
+    "MenuItem"
 ]
