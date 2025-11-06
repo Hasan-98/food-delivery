@@ -35,6 +35,21 @@ class RestaurantService:
         db.refresh(order)
         return order
     
+    def accept_order_internal(self, db: Session, order_id: int) -> Order:
+        """Accept an order (internal endpoint for saga orchestrator)"""
+        order = db.query(Order).filter(Order.id == order_id).first()
+        
+        if not order:
+            raise ValueError("Order not found")
+        
+        if not order.restaurant_id:
+            raise ValueError("Order has no restaurant_id")
+        
+        order.status = OrderStatus.ACCEPTED
+        db.commit()
+        db.refresh(order)
+        return order
+    
     def start_preparing(self, db: Session, order_id: int, restaurant_id: int) -> Order:
         """Start preparing an order"""
         order = db.query(Order).filter(

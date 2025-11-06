@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 import sys
 import os
 import asyncio
@@ -123,6 +123,46 @@ async def assign_driver(
     )
     
     return {"message": f"Driver {driver_id} assigned to order {order_id}"}
+
+@router.post("/orders/{order_id}/assign/internal")
+async def assign_driver_internal(
+    order_id: int,
+    request_data: Dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint for saga orchestrator
+    Assigns a driver to an order (no auth required)
+    Request body: {"driver_id": int}
+    MUST be defined before /orders/{order_id}/assign to avoid route conflicts
+    """
+    dispatch_service = DispatchService()
+    
+    driver_id = request_data.get("driver_id")
+    if not driver_id:
+        raise HTTPException(status_code=400, detail="driver_id is required in request body")
+    
+    try:
+        delivery = dispatch_service.assign_driver(db, order_id, driver_id)
+        
+        # Publish driver assigned event
+        await dispatch_service.publish_driver_event(
+            "driver.assigned",
+            {
+                "order_id": order_id,
+                "driver_id": driver_id,
+                "assigned_at": str(asyncio.get_event_loop().time())
+            }
+        )
+        
+        return {
+            "message": f"Driver {driver_id} assigned to order {order_id}",
+            "order_id": order_id,
+            "driver_id": driver_id,
+            "delivery_id": delivery.id
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/orders/{order_id}/assign")
 async def self_assign_driver(

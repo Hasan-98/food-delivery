@@ -24,6 +24,38 @@ async def get_pending_orders(
     orders = restaurant_service.get_pending_orders(db, current_user.id)
     return orders
 
+@router.post("/orders/{order_id}/accept/internal")
+async def accept_order_internal(
+    order_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint for saga orchestrator
+    Accepts an order (no auth required)
+    MUST be defined before /orders/{order_id}/accept to avoid route conflicts
+    """
+    restaurant_service = RestaurantService()
+    
+    try:
+        order = restaurant_service.accept_order_internal(db, order_id)
+        
+        # Publish order accepted event
+        await restaurant_service.publish_order_event(
+            "order.accepted",
+            order_id,
+            order.restaurant_id,
+            accepted_at=str(asyncio.get_event_loop().time())
+        )
+        
+        return {
+            "message": f"Order {order_id} accepted",
+            "order_id": order.id,
+            "restaurant_id": order.restaurant_id,
+            "status": order.status.value
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
 @router.post("/orders/{order_id}/accept")
 async def accept_order(
     order_id: int,

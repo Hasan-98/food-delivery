@@ -56,9 +56,9 @@ def get_order_processing_saga_steps() -> list[SagaStepDefinition]:
 def get_order_fulfillment_saga_steps() -> list[SagaStepDefinition]:
     """
     Order Fulfillment Saga Steps:
-    1. Accept Order (restaurant-service)
-    2. Assign Driver (dispatch-service)
-    3. Update Order Status (order-service)
+    1. Accept Order (restaurant-service) - Internal endpoint
+    2. Assign Driver (dispatch-service) - Internal endpoint, requires driver_id in body
+    3. Update Order Status (order-service) - Internal endpoint, requires status in body
     
     Compensation:
     - If any step fails: Cancel previous steps
@@ -68,7 +68,7 @@ def get_order_fulfillment_saga_steps() -> list[SagaStepDefinition]:
             step_name="accept_order",
             service_name="restaurant-service",
             service_url=RESTAURANT_SERVICE_URL,
-            request_path="/orders/{order_id}/accept",
+            request_path="/orders/{order_id}/accept/internal",
             request_method="POST",
             compensation_path="/orders/{order_id}/cancel",
             compensation_method="POST"
@@ -77,7 +77,7 @@ def get_order_fulfillment_saga_steps() -> list[SagaStepDefinition]:
             step_name="assign_driver",
             service_name="dispatch-service",
             service_url=DISPATCH_SERVICE_URL,
-            request_path="/orders/{order_id}/assign",
+            request_path="/orders/{order_id}/assign/internal",
             request_method="POST",
             compensation_path="/deliveries/{order_id}/cancel",
             compensation_method="POST"
@@ -86,7 +86,7 @@ def get_order_fulfillment_saga_steps() -> list[SagaStepDefinition]:
             step_name="update_order_status",
             service_name="order-service",
             service_url=ORDER_SERVICE_URL,
-            request_path="/orders/{order_id}/status",
+            request_path="/orders/{order_id}/status/internal",
             request_method="PUT",
             compensation_path="/orders/{order_id}/compensate",
             compensation_method="POST"

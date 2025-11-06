@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 import sys
 import os
 
@@ -139,6 +139,60 @@ async def get_order(
         raise HTTPException(status_code=403, detail="Not authorized to view this order")
     
     return order
+
+@router.put("/orders/{order_id}/status/internal")
+async def update_order_status_internal(
+    order_id: int,
+    request_data: Dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint for saga orchestrator
+    Updates order status (no auth required)
+    Request body: {"status": "ACCEPTED" | "PREPARING" | "READY_FOR_DELIVERY" | etc.}
+    MUST be defined before /orders/{order_id}/status to avoid route conflicts
+    """
+    order_service = OrderService()
+    order = order_service.get_order_by_id(db, order_id)
+    
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    status_str = request_data.get("status")
+    if not status_str:
+        raise HTTPException(status_code=400, detail="status is required in request body")
+    
+    try:
+        status = OrderStatus(status_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status_str}")
+    
+    old_status = order.status
+    order_service.update_order_status(db, order_id, status)
+    
+    # Publish status update event (optional)
+    try:
+        message_broker = await get_message_broker()
+        await message_broker.publish_event(
+            f"order.{status.lower()}",
+            {
+                "order_id": order.id,
+                "old_status": old_status.value,
+                "new_status": status.value,
+                "customer_id": order.customer_id,
+                "restaurant_id": order.restaurant_id
+            }
+        )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+        # Continue without message broker
+    
+    return {
+        "message": f"Order status updated to {status.value}",
+        "order_id": order.id,
+        "old_status": old_status.value,
+        "new_status": status.value
+    }
 
 @router.put("/orders/{order_id}/status")
 async def update_order_status(
