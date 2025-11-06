@@ -103,4 +103,37 @@ class OrderService:
     def get_order_items(self, db: Session, order_id: int) -> List[OrderItem]:
         """Get order items for an order"""
         return db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+    
+    def compensate_order(self, db: Session, order_id: int) -> Order:
+        """
+        Compensation method for order creation
+        Cancels/deletes the order and its items
+        """
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            raise ValueError("Order not found")
+        
+        # Delete order items
+        db.query(OrderItem).filter(OrderItem.order_id == order_id).delete()
+        
+        # Cancel order
+        order.status = OrderStatus.CANCELLED
+        db.commit()
+        db.refresh(order)
+        return order
+    
+    def confirm_order(self, db: Session, order_id: int) -> Order:
+        """
+        Confirm order after payment is successful
+        """
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            raise ValueError("Order not found")
+        
+        if order.status == OrderStatus.PENDING_PAYMENT:
+            order.status = OrderStatus.CONFIRMED
+            db.commit()
+            db.refresh(order)
+        
+        return order
 

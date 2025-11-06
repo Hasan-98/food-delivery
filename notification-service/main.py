@@ -36,6 +36,7 @@ async def startup_event():
         await message_broker.subscribe_to_events(
             [
                 "order.created",
+                "order.confirmed",
                 "payment.succeeded", 
                 "payment.failed",
                 "order.accepted",

@@ -14,6 +14,66 @@ from services.payment_service import PaymentService
 
 router = APIRouter()
 
+@router.post("/payments/internal", response_model=PaymentSchema)
+async def create_payment_internal(
+    payment: PaymentCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint for saga orchestrator
+    Creates and processes payment (no auth required)
+    MUST be defined before /payments/{payment_id} to avoid route conflicts
+    """
+    payment_service = PaymentService()
+    
+    # Create payment record
+    db_payment = payment_service.create_payment(db, payment)
+    
+    # Process payment
+    payment_result = await payment_service.process_payment({
+        "order_id": payment.order_id,
+        "amount": payment.amount,
+        "payment_method": payment.payment_method
+    })
+    
+    # Update payment status
+    if payment_result["success"]:
+        payment_service.update_payment_status(
+            db, db_payment.id, PaymentStatus.SUCCEEDED, payment_result["transaction_id"]
+        )
+    else:
+        payment_service.update_payment_status(
+            db, db_payment.id, PaymentStatus.FAILED, payment_result["transaction_id"]
+        )
+    
+    # Publish payment event (optional, can fail silently)
+    try:
+        if payment_result["success"]:
+            await payment_service.publish_payment_event(
+                "payment.succeeded",
+                {
+                    "order_id": payment.order_id,
+                    "payment_id": db_payment.id,
+                    "amount": payment.amount,
+                    "transaction_id": payment_result["transaction_id"]
+                }
+            )
+        else:
+            await payment_service.publish_payment_event(
+                "payment.failed",
+                {
+                    "order_id": payment.order_id,
+                    "payment_id": db_payment.id,
+                    "amount": payment.amount,
+                    "transaction_id": payment_result["transaction_id"]
+                }
+            )
+    except Exception as e:
+        print(f"Message broker error: {e}")
+        # Continue without message broker
+    
+    return db_payment
+
 @router.post("/payments", response_model=PaymentSchema)
 async def create_payment(
     payment: PaymentCreate,
@@ -118,6 +178,28 @@ async def refund_payment(
     )
     
     return {"message": "Payment refunded successfully"}
+
+@router.post("/payments/{payment_id}/compensate")
+async def compensate_payment(
+    payment_id: int,
+    compensation_data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Compensation endpoint for saga transactions
+    Refunds the payment if it was successful
+    """
+    payment_service = PaymentService()
+    
+    try:
+        payment = payment_service.compensate_payment(db, payment_id)
+        return {
+            "message": f"Payment {payment_id} compensated",
+            "payment_id": payment.id,
+            "status": payment.status
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/health")
 async def health_check():

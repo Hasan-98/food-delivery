@@ -91,6 +91,28 @@ class PaymentService:
         db.refresh(payment)
         return payment
     
+    def compensate_payment(self, db: Session, payment_id: int) -> Payment:
+        """
+        Compensation method for payment processing
+        Refunds the payment if it was successful
+        """
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            raise ValueError("Payment not found")
+        
+        # If payment was successful, refund it
+        if payment.status == PaymentStatus.SUCCEEDED:
+            payment.status = PaymentStatus.REFUNDED
+            db.commit()
+            db.refresh(payment)
+        elif payment.status == PaymentStatus.PENDING:
+            # If payment is still pending, just mark as failed
+            payment.status = PaymentStatus.FAILED
+            db.commit()
+            db.refresh(payment)
+        
+        return payment
+    
     async def publish_payment_event(self, event_type: str, payment_data: dict):
         """Publish payment event"""
         try:

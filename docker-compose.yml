@@ -153,6 +153,29 @@ services:
       - postgres
       - rabbitmq
 
+  saga-orchestrator-service:
+    build: ./saga-orchestrator-service
+    ports:
+      - "8009:8000"
+    volumes:
+      - ./shared:/app/shared
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/food_delivery
+      - SERVICE_NAME=saga-orchestrator-service
+      - SERVICE_PORT=8000
+      - ORDER_SERVICE_URL=http://order-service:8000
+      - PAYMENT_SERVICE_URL=http://payment-service:8000
+      - CATALOG_SERVICE_URL=http://catalog-service:8000
+      - RESTAURANT_SERVICE_URL=http://restaurant-service:8000
+      - DISPATCH_SERVICE_URL=http://dispatch-service:8000
+    depends_on:
+      - postgres
+      - order-service
+      - payment-service
+      - catalog-service
+      - restaurant-service
+      - dispatch-service
+
   # Database GUI
   adminer:
     image: adminer

@@ -252,45 +252,151 @@ class ReportingService:
         }
     
     def get_peak_times(self, db: Session, granularity: str = "day") -> Dict:
-        """Get peak times for orders"""
+        """
+        Get peak times for orders based on granularity
+        
+        Args:
+            granularity: "day", "week", "month", or "year"
+                - "day": Returns hourly peaks (00:00-23:00)
+                - "week": Returns daily peaks (Monday-Sunday)
+                - "month": Returns weekly peaks (weeks within the month)
+                - "year": Returns monthly peaks (January-December)
+        """
         if granularity == "day":
+            # Show hourly peaks for a day (most popular time ranges during the day)
             rows = db.execute(text("""
-                SELECT to_char(date_trunc('hour', created_at), 'HH24:00') AS hour,
-                       COUNT(*) AS order_count
+                SELECT 
+                    to_char(date_trunc('hour', created_at), 'HH24:00') AS time_range,
+                    COUNT(*) AS order_count
                 FROM orders
-                GROUP BY 1
+                WHERE created_at >= CURRENT_DATE
+                GROUP BY date_trunc('hour', created_at)
+                ORDER BY order_count DESC
+                LIMIT 10
+            """)).fetchall()
+            
+            peak_times = []
+            for row in rows:
+                hour = int(row.time_range[:2])
+                next_hour = (hour + 1) % 24
+                peak_times.append({
+                    "time_range": f"{row.time_range} - {next_hour:02d}:00",
+                    "order_count": int(row.order_count),
+                    "hour": hour
+                })
+            
+            return {
+                "granularity": "day",
+                "period": "Today",
+                "peak_times": peak_times,
+                "total_peaks": len(peak_times)
+            }
+            
+        elif granularity == "week":
+            # Show daily peaks for a week (most popular days)
+            rows = db.execute(text("""
+                SELECT 
+                    to_char(created_at, 'Day') AS day_name,
+                    to_char(created_at, 'D') AS day_number,
+                    COUNT(*) AS order_count
+                FROM orders
+                WHERE created_at >= date_trunc('week', CURRENT_DATE)
+                GROUP BY to_char(created_at, 'Day'), to_char(created_at, 'D')
+                ORDER BY to_char(created_at, 'D')::int
+            """)).fetchall()
+            
+            # Sort by order count for peaks, but also include all days
+            all_days = [
+                {
+                    "day": row.day_name.strip(),
+                    "day_number": int(row.day_number),
+                    "order_count": int(row.order_count)
+                }
+                for row in rows
+            ]
+            
+            # Get top 3 peak days
+            peak_days = sorted(all_days, key=lambda x: x["order_count"], reverse=True)[:3]
+            
+            return {
+                "granularity": "week",
+                "period": "This Week",
+                "peak_days": peak_days,
+                "all_days": all_days,
+                "total_peaks": len(peak_days)
+            }
+            
+        elif granularity == "month":
+            # Show weekly peaks for a month (weeks with most orders)
+            rows = db.execute(text("""
+                SELECT 
+                    to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week_start,
+                    to_char(date_trunc('week', created_at) + INTERVAL '6 days', 'YYYY-MM-DD') AS week_end,
+                    COUNT(*) AS order_count
+                FROM orders
+                WHERE created_at >= date_trunc('month', CURRENT_DATE)
+                GROUP BY date_trunc('week', created_at)
                 ORDER BY order_count DESC
                 LIMIT 5
             """)).fetchall()
-            return {
-                "granularity": "day",
-                "peak_times": [{"time": r.hour, "order_count": int(r.order_count)} for r in rows]
-            }
-        elif granularity == "week":
-            rows = db.execute(text(
-                "SELECT to_char(created_at, 'Day') AS day, COUNT(*) AS order_count FROM orders GROUP BY 1 ORDER BY order_count DESC LIMIT 3"
-            )).fetchall()
-            return {
-                "granularity": "week",
-                "peak_days": [{"day": r.day.strip(), "order_count": int(r.order_count)} for r in rows]
-            }
-        elif granularity == "month":
-            rows = db.execute(text(
-                "SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week, COUNT(*) AS order_count FROM orders GROUP BY 1 ORDER BY order_count DESC LIMIT 3"
-            )).fetchall()
+            
+            peak_weeks = [
+                {
+                    "week_range": f"{row.week_start} to {row.week_end}",
+                    "week_start": row.week_start,
+                    "week_end": row.week_end,
+                    "order_count": int(row.order_count)
+                }
+                for row in rows
+            ]
+            
             return {
                 "granularity": "month",
-                "peak_weeks": [{"week": r.week, "order_count": int(r.order_count)} for r in rows]
+                "period": "This Month",
+                "peak_weeks": peak_weeks,
+                "total_peaks": len(peak_weeks)
             }
+            
         elif granularity == "year":
-            rows = db.execute(text(
-                "SELECT to_char(created_at, 'Mon') AS month, COUNT(*) AS order_count FROM orders GROUP BY 1 ORDER BY order_count DESC LIMIT 5"
-            )).fetchall()
+            # Show monthly peaks for a year (months with highest order counts)
+            rows = db.execute(text("""
+                SELECT 
+                    to_char(created_at, 'Month') AS month_name,
+                    to_char(created_at, 'MM') AS month_number,
+                    to_char(created_at, 'YYYY') AS year,
+                    COUNT(*) AS order_count
+                FROM orders
+                WHERE created_at >= date_trunc('year', CURRENT_DATE)
+                GROUP BY to_char(created_at, 'Month'), to_char(created_at, 'MM'), to_char(created_at, 'YYYY')
+                ORDER BY to_char(created_at, 'MM')::int
+            """)).fetchall()
+            
+            all_months = [
+                {
+                    "month": row.month_name.strip(),
+                    "month_number": int(row.month_number),
+                    "year": row.year,
+                    "order_count": int(row.order_count)
+                }
+                for row in rows
+            ]
+            
+            # Get top months by order count
+            peak_months = sorted(all_months, key=lambda x: x["order_count"], reverse=True)[:5]
+            
             return {
                 "granularity": "year",
-                "peak_months": [{"month": r.month, "order_count": int(r.order_count)} for r in rows]
+                "period": "This Year",
+                "peak_months": peak_months,
+                "all_months": all_months,
+                "total_peaks": len(peak_months)
             }
-        return {"granularity": granularity, "data": []}
+        
+        return {
+            "granularity": granularity,
+            "error": f"Invalid granularity. Must be one of: day, week, month, year",
+            "data": []
+        }
     
     def log_event(
         self,

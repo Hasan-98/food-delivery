@@ -163,12 +163,51 @@ async def handle_no_driver_available(event_data):
     
     logger.info(f"No driver available notification sent for order {order_id}")
 
+async def handle_order_confirmed(event_data):
+    """Handle order confirmed event - notify customer that payment succeeded and order is confirmed"""
+    order_data = event_data["data"]
+    order_id = order_data["order_id"]
+    customer_id = order_data["customer_id"]
+    
+    db = SessionLocal()
+    try:
+        notification_service = NotificationService()
+        
+        # Save notification to database
+        notification = notification_service.create_notification(
+            db,
+            customer_id,
+            "PUSH",
+            "Order Confirmed",
+            f"Your order #{order_id} has been confirmed! Payment received successfully."
+        )
+        
+        # Update to sent status
+        notification.status = "SENT"
+        notification.sent_at = datetime.utcnow()
+        db.commit()
+        
+        # Send push notification
+        await notification_service.send_push_notification(
+            customer_id,
+            "Order Confirmed",
+            f"Your order #{order_id} has been confirmed! Payment received successfully."
+        )
+        
+        logger.info(f"Order confirmation sent for order {order_id}")
+    except Exception as e:
+        logger.error(f"Failed to send notification: {e}")
+    finally:
+        db.close()
+
 async def handle_all_notification_events(event_data):
     """Handle all notification events"""
     event_type = event_data.get("event_type", "")
     
     if event_type == "order.created":
         await handle_order_created(event_data)
+    elif event_type == "order.confirmed":
+        await handle_order_confirmed(event_data)
     elif event_type == "payment.succeeded":
         await handle_payment_succeeded(event_data)
     elif event_type == "payment.failed":

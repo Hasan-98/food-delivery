@@ -71,13 +71,37 @@ class AverageOrderValue(BaseModel):
     total_amount: float
 
 class PeakTime(BaseModel):
-    time: str
+    time_range: str
+    order_count: int
+    hour: Optional[int] = None
+
+class PeakDay(BaseModel):
+    day: str
+    day_number: int
+    order_count: int
+
+class PeakWeek(BaseModel):
+    week_range: str
+    week_start: str
+    week_end: str
+    order_count: int
+
+class PeakMonth(BaseModel):
+    month: str
+    month_number: int
+    year: str
     order_count: int
 
 class PeakTimes(BaseModel):
     granularity: str
+    period: Optional[str] = None
     peak_times: Optional[List[PeakTime]] = None
-    peak_days: Optional[List[Dict]] = None
-    peak_weeks: Optional[List[Dict]] = None
-    peak_months: Optional[List[Dict]] = None
+    peak_days: Optional[List[PeakDay]] = None
+    all_days: Optional[List[PeakDay]] = None
+    peak_weeks: Optional[List[PeakWeek]] = None
+    peak_months: Optional[List[PeakMonth]] = None
+    all_months: Optional[List[PeakMonth]] = None
+    total_peaks: Optional[int] = None
+    error: Optional[str] = None
+    data: Optional[List] = None
 

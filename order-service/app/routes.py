@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List
 import sys
@@ -51,6 +51,55 @@ async def create_order(
         # Continue without message broker
     
     return db_order
+
+@router.post("/orders/internal", response_model=OrderSchema)
+async def create_order_internal(
+    order: OrderCreateRequest,
+    customer_id: int = Query(..., description="Customer ID for the order"),
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint for saga orchestrator
+    Creates order with explicit customer_id (no auth required)
+    MUST be defined before /orders/{order_id} to avoid route conflicts
+    """
+    order_service = OrderService()
+    
+    try:
+        db_order = order_service.create_order(
+            db=db,
+            order=order,
+            customer_id=customer_id
+        )
+        
+        # Publish order created event (for notification service and other services)
+        try:
+            message_broker = await get_message_broker()
+            await message_broker.publish_event(
+                "order.created",
+                {
+                    "order_id": db_order.id,
+                    "customer_id": db_order.customer_id,
+                    "restaurant_id": db_order.restaurant_id,
+                    "total_amount": float(db_order.total_amount),
+                    "status": db_order.status.value,
+                    "items": [
+                        {
+                            "menu_item_id": item.menu_item_id,
+                            "quantity": item.quantity,
+                            "price": float(item.price)
+                        }
+                        for item in db_order.items
+                    ]
+                }
+            )
+        except Exception as e:
+            print(f"Message broker error: {e}")
+            # Continue without message broker
+        
+        return db_order
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/orders", response_model=List[OrderSchema])
 async def get_orders(
@@ -161,6 +210,67 @@ async def get_order_items(
     
     items = order_service.get_order_items(db, order_id)
     return items
+
+@router.post("/orders/{order_id}/compensate")
+async def compensate_order(
+    order_id: int,
+    compensation_data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Compensation endpoint for saga transactions
+    Cancels the order and its items
+    """
+    order_service = OrderService()
+    
+    try:
+        order = order_service.compensate_order(db, order_id)
+        return {
+            "message": f"Order {order_id} compensated",
+            "order_id": order.id,
+            "status": order.status
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.put("/orders/{order_id}/confirm")
+async def confirm_order(
+    order_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Confirm order after payment is successful
+    Used by saga orchestrator
+    """
+    order_service = OrderService()
+    
+    try:
+        order = order_service.confirm_order(db, order_id)
+        
+        # Publish order confirmed event (for notification service)
+        try:
+            message_broker = await get_message_broker()
+            await message_broker.publish_event(
+                "order.confirmed",
+                {
+                    "order_id": order.id,
+                    "customer_id": order.customer_id,
+                    "restaurant_id": order.restaurant_id,
+                    "total_amount": float(order.total_amount),
+                    "status": order.status.value
+                }
+            )
+        except Exception as e:
+            print(f"Message broker error: {e}")
+            # Continue without message broker
+        
+        return {
+            "message": f"Order {order_id} confirmed",
+            "order_id": order.id,
+            "status": order.status
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/health")
 async def health_check():
